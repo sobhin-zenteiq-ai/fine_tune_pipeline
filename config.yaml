@@ -1,0 +1,33 @@
+# Data Pipeline Configuration
+dataset:
+  name: "tatsu-lab/alpaca"
+  
+model:
+  name: "gpt2"
+  
+cleaning:
+  min_length: 10
+  max_length: 1000
+  remove_duplicates: true
+  
+preprocessing:
+  lowercase: true
+  remove_urls: true
+  remove_extra_whitespace: true
+  expand_contractions: true
+  
+splitting:
+  train_ratio: 0.9
+  validation_ratio: 0.1
+  random_seed: 42
+  
+tokenization:
+  max_length: 512
+  padding: true
+  truncation: true
+  
+output:
+  save_cleaned: true
+  save_tokenized: true
+  save_stats: true
+  output_dir: "output"
