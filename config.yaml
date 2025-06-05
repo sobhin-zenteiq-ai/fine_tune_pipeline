@@ -1,14 +1,37 @@
 # Data Pipeline Configuration
 dataset:
   name: "tatsu-lab/alpaca"
+  tokenized_train_path: ./output/train_tokenized.pt
+  tokenized_validation_path: ./output/validation_tokenized.pt
   
 model:
-  name: "gpt2"
+  name: "openai-community/gpt2"
+  task: "lm"
+
+LoRA:
+  enable: true
+  rank: 8
+  alpha: 16
+  dropout: 0.1
+  target_modules: ["q_proj", "v_proj"]
+  training_args: 
+        output_dir: "./outputs"
+        per_device_train_batch_size: 1
+        num_train_epochs: 3
+        logging_steps: 10
+        save_steps: 50
+        eval_strategy: "epoch"
+        fp16: False
+        learning_rate: 0.00005
+        report_to: "none"
+    
+
   
 cleaning:
   min_length: 10
   max_length: 1000
   remove_duplicates: true
+
   
 preprocessing:
   lowercase: true
