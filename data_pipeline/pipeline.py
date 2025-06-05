@@ -6,6 +6,7 @@ from .preprocessor import TextPreprocessor
 from .formatter import DataFormatter
 from .splitter import DataSplitter
 from .tokenizer_handler import TokenizerHandler
+from .validator import DatasetValidator
 from .saver import DataSaver
 
 class DataPipeline:
@@ -30,6 +31,7 @@ class DataPipeline:
         
         # Initialize all components
         self.loader = DataLoader(self.config)
+        self.validator = DatasetValidator(self.config)
         self.cleaner = DataCleaner(self.config)
         self.preprocessor = TextPreprocessor(self.config)
         self.formatter = DataFormatter(self.config)
@@ -55,7 +57,14 @@ class DataPipeline:
             raw_data = self.loader.load()
             loader_stats = self.loader.get_info(raw_data)
             self.stats.update(loader_stats)
-            
+
+            validation_result = self.validator.validate_dataset(dataset_features=set(loader_stats['columns']))
+            self.stats.update(validation_result)
+
+            print(f"Dataset validation result : {validation_result['is_valid']}")
+            if not validation_result['is_valid']:
+                raise ValueError(f"Dataset schema validation failed: {validation_result['error_message']}")
+
             # Step 2: Clean data
             original_data = raw_data.copy()
             cleaned_data = self.cleaner.clean(raw_data)
@@ -118,6 +127,10 @@ class DataPipeline:
         """
         steps = {
             'load': lambda: self.loader.load(),
+            'validate': lambda: self.validator.validate_dataset(model=self.config['model']['name'],
+                task_type='qa',  # default to language modeling
+                dataset_features=['instruction','input','output'],
+                dataset_name=self.config['dataset'].get('name', 'Unknown')),
             'clean': lambda data: self.cleaner.clean(data),
             'preprocess': lambda data: self.preprocessor.process(data),
             'format': lambda data: self.formatter.format(data),

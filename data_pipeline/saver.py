@@ -4,6 +4,21 @@ import json
 import os
 from typing import Dict, Any
 from .tokenizer_handler import TokenizedDataset
+from torch.utils.data import Dataset
+
+class TokenizedDataset(Dataset):
+    def __init__(self, input_ids, attention_mask):
+        self.input_ids = input_ids
+        self.attention_mask = attention_mask
+
+    def __len__(self):
+        return self.input_ids.shape[0]
+
+    def __getitem__(self, idx):
+        return {
+            'input_ids': self.input_ids[idx],
+            'attention_mask': self.attention_mask[idx]
+        }
 
 class DataSaver:
     """Handles saving processed data to various formats"""
@@ -83,16 +98,12 @@ class DataSaver:
             pt_path = os.path.join(self.output_dir, f"{split_name}_tokenized.pt")
             
             # Create a dictionary with all the tokenized data
-            tokenized_data = {
-                'input_ids': dataset.encodings['input_ids'],
-                'attention_mask': dataset.encodings['attention_mask'],
-                'metadata': {
-                    'size': len(dataset),
-                    'max_length': dataset.encodings['input_ids'].shape[1]
-                }
-            }
+            input_ids = dataset.encodings['input_ids']
+            attention_mask = dataset.encodings['attention_mask']
             
-            torch.save(tokenized_data, pt_path)
+            tokenized_dataset_obj = TokenizedDataset(input_ids, attention_mask)
+
+            torch.save(tokenized_dataset_obj, pt_path)
             saved_files[f'{split_name}_tokenized'] = pt_path
             
             print(f"Saved {split_name} tokenized data: {len(dataset)} examples")
