@@ -1,0 +1,12 @@
+Data Pipeline Processing Report
+========================================
+
+Total Examples: 67293
+Training Examples: 60563
+Validation Examples: 6730
+
+Examples Removed: 20306
+Removal Percentage: 23.18%
+
+Average Tokens (Train): 170.4
+Average Tokens (Validation): 170.7
