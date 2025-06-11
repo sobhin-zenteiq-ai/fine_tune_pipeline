@@ -9,3 +9,6 @@ __pycache__
 *.log
 *.egg
 *.egg-info
+*.pt
+*.pth
+*.pkl
