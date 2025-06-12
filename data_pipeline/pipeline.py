@@ -1,4 +1,5 @@
 import yaml
+import pandas as pd
 from typing import Dict, Any, Optional
 from .loader import DataLoader
 from .cleaner import DataCleaner
@@ -47,7 +48,7 @@ class DataPipeline:
         # Store processing statistics
         self.stats = {}
         
-    def run(self, dataset_name: Optional[str] = None) -> Dict[str, Any]:
+    def run(self, dataset_name: Optional[str] = None,df: Optional[pd.DataFrame]=None) -> Dict[str, Any]:
         """
         Run the complete pipeline
         
@@ -69,9 +70,15 @@ class DataPipeline:
         try:
             # Step 1: Load data
             print(f"Step 1: Loading dataset '{dataset_to_use}' for task '{self.task}'...")
-            raw_data = self.loader.load(dataset_name=dataset_to_use)
-            loader_stats = self.loader.get_info(raw_data)
-            self.stats.update(loader_stats)
+            if df is not None:
+                # If a DataFrame is provided, use it directly
+                raw_data = df
+                loader_stats = self.loader.get_info(raw_data)
+                self.stats.update(loader_stats)
+            else: 
+                raw_data = self.loader.load(dataset_name=dataset_to_use)
+                loader_stats = self.loader.get_info(raw_data)
+                self.stats.update(loader_stats)
 
             # Step 1.5: Validate dataset
             print("Step 1.5: Validating dataset...")

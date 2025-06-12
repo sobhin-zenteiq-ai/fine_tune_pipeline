@@ -17,6 +17,7 @@ import logging
 
 # Import your pipeline components
 from data_pipeline import DataPipeline
+from data_pipeline.validator import DatasetValidator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +50,11 @@ class GradioDataPipelineUI:
         if file_obj is None:
             return False, "No file uploaded", pd.DataFrame()
         
+        if task == "qa":
+            required_columns = ['instruction', 'input', 'output']
+        elif task == "summarization":
+            required_columns = ['article', 'summary']
+        
         try:
             # Read the file
             if file_obj.name.endswith('.csv'):
@@ -58,47 +64,50 @@ class GradioDataPipelineUI:
             else:
                 return False, "Unsupported file format. Please upload CSV or JSON.", pd.DataFrame()
             
-            # Validate required columns
-            required_columns = ['instruction', 'input', 'output']
             missing_columns = [col for col in required_columns if col not in df.columns]
             
             if missing_columns:
                 return False, f"Missing required columns: {missing_columns}", df
             
-            # Check for empty values
-            empty_instructions = df['instruction'].isnull().sum()
-            empty_outputs = df['output'].isnull().sum()
+            # # Check for empty values
+            # empty_instructions = df['text'].isnull().sum()
+            # empty_outputs = df['label'].isnull().sum()
             
             validation_msg = f"✅ Dataset is valid!\n"
             validation_msg += f"📊 Total examples: {len(df)}\n"
             validation_msg += f"📝 Columns: {list(df.columns)}\n"
             
-            if empty_instructions > 0:
-                validation_msg += f"⚠️ Warning: {empty_instructions} empty instructions\n"
-            if empty_outputs > 0:
-                validation_msg += f"⚠️ Warning: {empty_outputs} empty outputs\n"
+            # if empty_instructions > 0:
+            #     validation_msg += f"⚠️ Warning: {empty_instructions} empty instructions\n"
+            # if empty_outputs > 0:
+            #     validation_msg += f"⚠️ Warning: {empty_outputs} empty outputs\n"
             
             return True, validation_msg, df
             
         except Exception as e:
             return False, f"Error validating dataset: {str(e)}", pd.DataFrame()
     
+    def empty_plot(self)->go.Figure:
+        fig = go.Figure()
+        fig.update_layout(title="No data", template="plotly_white")
+        return fig
+    
     def process_dataset(self, task: str, dataset_source: str, dataset_name: str = None, 
-                       custom_file=None, progress=gr.Progress()) -> Tuple[str, str, str, str]:
+                       custom_file=None, progress=gr.Progress()) -> Tuple[str, go.Figure, str, str]:
         """Process the dataset through the pipeline"""
         try:
             progress(0, desc="Initializing pipeline...")
             
             # Create pipeline
             self.pipeline = self.create_pipeline(task)
-            
+            df = None
             # Handle custom dataset
             if dataset_source == "Custom Upload" and custom_file is not None:
                 progress(0.1, desc="Validating custom dataset...")
                 is_valid, validation_msg, df = self.validate_custom_dataset(custom_file, task)
                 
                 if not is_valid:
-                    return validation_msg, "", "", ""
+                    return validation_msg, self.empty_plot(), "", ""
                 
                 # Save custom dataset temporarily
                 temp_path = f"temp_custom_dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -110,12 +119,12 @@ class GradioDataPipelineUI:
             
             elif dataset_source == "Predefined Dataset":
                 if not dataset_name:
-                    return "❌ Please select a dataset", "", "", ""
+                    return "❌ Please select a dataset", self.empty_plot(), "", ""
             
             progress(0.2, desc="Starting data processing...")
             
             # Run pipeline
-            result = self.pipeline.run(dataset_name=dataset_name)
+            result = self.pipeline.run(dataset_name=dataset_name,df = df)
             
             if result['success']:
                 progress(1.0, desc="Processing complete!")
@@ -142,11 +151,11 @@ class GradioDataPipelineUI:
                 
                 return summary, stats_plot, file_list, "✅ Processing completed successfully!"
             else:
-                return f"❌ Processing failed: {result['error']}", "", "", ""
+                return f"❌ Processing failed: {result['error']}", self.empty_plot(), "", ""
                 
         except Exception as e:
             logger.error(f"Error processing dataset: {str(e)}")
-            return f"❌ Error: {str(e)}", "", "", ""
+            return f"❌ Error: {str(e)}", self.empty_plot(), "", ""
     
     def create_processing_summary(self, result: Dict[str, Any]) -> str:
         """Create a formatted summary of processing results"""
@@ -319,7 +328,7 @@ class GradioDataPipelineUI:
                                     summary_output = gr.Markdown()
                                 
                                 with gr.Tab("📊 Visualizations"):
-                                    stats_plot = gr.Plot()
+                                    stats_plot = gr.Plot(label="Processing Statistics")
                                 
                                 with gr.Tab("📁 Files"):
                                     files_output = gr.Markdown()
@@ -440,7 +449,7 @@ class GradioDataPipelineUI:
             
             # Validation tab events
             validate_btn.click(
-                fn=lambda f, t: self.validate_custom_dataset(f, t)[:2] + (self.validate_custom_dataset(f, t)[2],),
+                fn=lambda f, t: self.validate_custom_dataset(f, t)[1:],
                 inputs=[validation_file, validation_task],
                 outputs=[validation_output, validated_preview]
             )
