@@ -27,6 +27,16 @@ class TextPreprocessor:
             "won't": "will not", "wouldn't": "would not", "shouldn't": "should not",
             "couldn't": "could not", "mustn't": "must not"
         }
+        self.task = config.get('model', {}).get('task', 'qa')
+        # Map task to required columns
+        self.map = {
+            'qa': ["instruction", "input", "output"],
+            'lm': ["text"],
+            'summarization': ["articles", "summaries"],
+            'classification': ["text", "label"],
+            'translation': ["source", "target"],
+            }
+        self.req_columns = set(self.map.get(self.task, []))
     
     def process(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -41,7 +51,7 @@ class TextPreprocessor:
         print("Starting text preprocessing...")
         
         # Process each text column
-        text_columns = ['instruction', 'input', 'output']
+        text_columns = self.req_columns
         
         for column in text_columns:
             if column in df.columns:
@@ -97,7 +107,7 @@ class TextPreprocessor:
         """Get statistics about preprocessing"""
         stats = {}
         
-        text_columns = ['instruction', 'input', 'output']
+        text_columns = processed_df.columns
         for column in text_columns:
             if column in original_df.columns and column in processed_df.columns:
                 orig_avg_len = original_df[column].fillna('').str.len().mean()
