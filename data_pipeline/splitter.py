@@ -51,8 +51,8 @@ class DataSplitter:
         stats = {}
         
         for split_name, split_df in splits.items():
-            if 'text' in split_df.columns:
-                text_lengths = split_df['text'].str.len()
+            if 'tokenizer_input' in split_df.columns:
+                text_lengths = split_df['tokenizer_input'].str.len()
                 stats[f'{split_name}_size'] = len(split_df)
                 stats[f'{split_name}_avg_length'] = text_lengths.mean()
                 stats[f'{split_name}_min_length'] = text_lengths.min()

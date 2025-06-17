@@ -7,9 +7,10 @@ from .tokenizer_handler import TokenizedDataset
 from torch.utils.data import Dataset
 
 class TokenizedDataset(Dataset):
-    def __init__(self, input_ids, attention_mask):
+    def __init__(self, input_ids, attention_mask,labels=None):
         self.input_ids = input_ids
         self.attention_mask = attention_mask
+        self.labels = labels if labels is not None else input_ids.clone()
 
     def __len__(self):
         return self.input_ids.shape[0]
@@ -17,7 +18,8 @@ class TokenizedDataset(Dataset):
     def __getitem__(self, idx):
         return {
             'input_ids': self.input_ids[idx],
-            'attention_mask': self.attention_mask[idx]
+            'attention_mask': self.attention_mask[idx],
+            'labels': self.labels[idx]
         }
 
 class DataSaver:
@@ -98,10 +100,11 @@ class DataSaver:
             pt_path = os.path.join(self.output_dir, f"{split_name}_tokenized.pt")
             
             # Create a dictionary with all the tokenized data
-            input_ids = dataset.encodings['input_ids']
-            attention_mask = dataset.encodings['attention_mask']
+            input_ids = dataset.input_ids
+            attention_mask = dataset.attention_mask
+            labels = dataset.labels
             
-            tokenized_dataset_obj = TokenizedDataset(input_ids, attention_mask)
+            tokenized_dataset_obj = TokenizedDataset(input_ids, attention_mask,labels)
 
             torch.save(tokenized_dataset_obj, pt_path)
             saved_files[f'{split_name}_tokenized'] = pt_path

@@ -28,86 +28,59 @@ class TextPreprocessor:
             "couldn't": "could not", "mustn't": "must not"
         }
         self.task = config.get('model', {}).get('task', 'qa')
-        # Map task to required columns
-        self.map = {
-            'qa': ["instruction", "input", "output"],
-            'lm': ["text"],
-            'summarization': ["articles", "summaries"],
-            'classification': ["text", "label"],
-            'translation': ["source", "target"],
-            }
-        self.req_columns = set(self.map.get(self.task, []))
+      
+        if self.task == 'qa':
+            self.req_columns = {"instruction", "output"}
+        else:
+            self.req_columns = {'input','output'}
+        
+        self.url_pattern = re.compile(r'https?://\S+')
+        self.ws_pattern = re.compile(r'\s+')
+        self.contractions_pattern = re.compile(
+            "|".join(re.escape(k) for k in self.contractions), flags=re.IGNORECASE
+        )
     
     def process(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply text preprocessing to the dataset
-        
+
         Args:
             df: Input DataFrame
-            
+
         Returns:
             pd.DataFrame: Preprocessed DataFrame
         """
         print("Starting text preprocessing...")
-        
-        # Process each text column
-        text_columns = self.req_columns
-        
-        for column in text_columns:
+
+        for column in self.req_columns:
             if column in df.columns:
                 print(f"Processing column: {column}")
-                df[column] = df[column].apply(self._preprocess_text)
-        
+                df[column] = df[column].astype(str)
+                if self.remove_urls:
+                    df[column] = df[column].str.replace(self.url_pattern, '', regex=True)
+                if self.expand_contractions:
+                    df[column] = df[column].str.replace(
+                        self.contractions_pattern,
+                        lambda m: self.contractions.get(m.group(0).lower(), m.group(0)),
+                        regex=True
+                    )
+                if self.lowercase:
+                    df[column] = df[column].str.lower()
+                if self.remove_extra_whitespace:
+                    df[column] = df[column].str.replace(self.ws_pattern, ' ', regex=True)
+                df[column] = df[column].str.strip()
+
         print("Text preprocessing complete")
         return df
     
-    def _preprocess_text(self, text: str) -> str:
-        """Apply preprocessing steps to a single text"""
-        if pd.isna(text):
-            return ""
-        
-        text = str(text)
-        
-        # Remove URLs
-        if self.remove_urls:
-            text = self._remove_urls(text)
-        
-        # Expand contractions
-        if self.expand_contractions:
-            text = self._expand_contractions(text)
-        
-        # Lowercase
-        if self.lowercase:
-            text = text.lower()
-        
-        # Remove extra whitespace
-        if self.remove_extra_whitespace:
-            text = self._normalize_whitespace(text)
-        
-        return text.strip()
-    
-    def _remove_urls(self, text: str) -> str:
-        """Remove URLs from text"""
-        url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-        return url_pattern.sub('', text)
-    
-    def _expand_contractions(self, text: str) -> str:
-        """Expand contractions in text"""
-        for contraction, expansion in self.contractions.items():
-            text = re.sub(re.escape(contraction), expansion, text, flags=re.IGNORECASE)
-        return text
-    
-    def _normalize_whitespace(self, text: str) -> str:
-        """Normalize whitespace (multiple spaces/tabs/newlines to single space)"""
-        # Replace multiple whitespace with single space
-        text = re.sub(r'\s+', ' ', text)
-        return text.strip()
     
     def get_preprocessing_stats(self, original_df: pd.DataFrame, processed_df: pd.DataFrame) -> Dict[str, Any]:
         """Get statistics about preprocessing"""
         stats = {}
         
         text_columns = processed_df.columns
+        if self.task == 'classification':
+            text_columns = {'input', 'output'}
         for column in text_columns:
             if column in original_df.columns and column in processed_df.columns:
                 orig_avg_len = original_df[column].fillna('').str.len().mean()

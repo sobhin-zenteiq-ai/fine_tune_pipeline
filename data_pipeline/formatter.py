@@ -1,154 +1,89 @@
 import pandas as pd
 from typing import Dict, Any
 
+
 class DataFormatter:
     """Handles formatting data for training"""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.task_type = config.get('model', {}).get('task', 'qa')
-        
+        self.task_type = config.get('model', {}).get('task', 'qa').lower()
+
     def format(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Format the dataset for training by combining instruction, input, and output
-        
-        Args:
-            df: Input DataFrame
-            
-        Returns:
-            pd.DataFrame: Formatted DataFrame with 'text' column
+        Format the dataset for training by combining instruction, input, and output.
+        Adds a 'tokenizer_input' column.
         """
-        print("Starting data formatting...")
-        
-        task = self.task_type.lower()
-        
-        if task == 'qa': df['tokenizer_input'] = df.apply(self._create_training_text_for_QA, axis=1)
-        elif task == 'summarization': df['tokenizer_input'] = df.apply(self._create_training_text_for_summarization, axis=1)
-        elif task == 'translation': df['tokenizer_input'] = df.apply(self._create_training_text_for_translation, axis=1)
-        elif task == 'classification': df['tokenizer_input'] = df['text'].astype(str) 
-        elif task == 'lm': df['tokenizer_input'] = df['text'].astype(str) 
-        else:
-            raise ValueError(f"Task not supported for formatting: {task}")
-        # Keep original columns and add formatted text
-        formatted_df = df.copy()
-        print(f"Formatted {len(formatted_df)} examples")
-        return formatted_df
-    
-    def _create_training_text_for_QA(self, row: pd.Series) -> str:
-        """
-        Create training text from instruction, input, and output
-        
-        Format: ### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n{output}
-        """
+        print("Starting data formatting…")
 
-        instruction = row['instruction']
-        input_text = row.get('input', '')
-        output = row['output']
-        
-        # Build the training text
-        text_parts = []
-        
-        # Add instruction
-        text_parts.append(f"### Instruction:\n{instruction}")
-        
-        # Add input if it exists and is not empty
-        if input_text and str(input_text).strip():
-            text_parts.append(f"### Input:\n{input_text}")
-        
-        # Add response
-        text_parts.append(f"### Response:\n{output}")
-        
-        # Join with double newlines
-        training_text = "\n\n".join(text_parts)
-        
-        return training_text
-    
-    def _create_training_text_for_summarization(self, row: pd.Series) -> str:
-        """
-        Create training text from input, and output
-        
-        Format: ### Summarize:\n{Article}\n\n### Summary:\n{input}
-        """
+        formatters = {
+            'qa': self._format_qa,
+            'summarization': self._format_summarization,
+            'translation': self._format_translation,
+            'classification': self._format_classification,
+            'lm': lambda row: str(row.get('input', ''))
+        }
 
-        Article = row['article']
-        summary = row.get('summary', '')
-        
-        # Build the training text
-        text_parts = []
-        
-        # Add instruction
-        text_parts.append(f"### Summarize the article:\n{Article}")
-        
-        # Add input if it exists and is not empty
-        if summary and str(summary).strip():
-            text_parts.append(f"### summary:\n{summary}")
-        
-        # Join with double newlines
-        training_text = "\n\n".join(text_parts)
-        
-        return training_text
+        if self.task_type not in formatters:
+            raise ValueError(f"Task not supported for formatting: {self.task_type}")
 
-    def _create_training_text_for_translation(self, row: pd.Series) -> str:
-        """
-        Create training text from input, and output
-        
-        Format: ### Summarize:\n{Article}\n\n### Summary:\n{input}
-        """
+        formatter = formatters[self.task_type]
+        df = df.copy()
+        df['tokenizer_input'] = df.apply(formatter, axis=1)
 
-        source = row['source']
-        target = row.get('target', '')
-        
-        # Build the training text
-        text_parts = []
-        
-        # Add instruction
-        text_parts.append(f"### Translate this sentence:\n{source}")
-        
-        # Add input if it exists and is not empty
-        text_parts.append(f"### into:\n{target}")
-        
-        # Join with double newlines
-        training_text = "\n\n".join(text_parts)
-        
-        return training_text
-     
-    
-    def _create_training_text_for_classification(self, row: pd.Series) -> str:
-        """
-        Create training text from input, and output
-        
-        Format: ### Summarize:\n{Article}\n\n### Summary:\n{input}
-        """
+        print(f"Formatted {len(df)} examples.")
+        return df
 
-        text = row['text']
-        label = row.get('label', '')
-        
-        # Build the training text
-        text_parts = []
-        
-        # Add instruction
-        text_parts.append(f"### Classify this sentence:\n{text}")
-        
-        # Add input if it exists and is not empty
-        text_parts.append(f"### Label:\n{label}")
-        
-        # Join with double newlines
-        training_text = "\n\n".join(text_parts)
-        
-        return training_text  
-  
-    
+    # ─────────────────────────────────────────────────────────────────────────────
+    #                          FORMATTER METHODS
+    # ─────────────────────────────────────────────────────────────────────────────
+    def _format_qa(self, row: pd.Series) -> str:
+        instruction = str(row.get('instruction', '')).strip()
+        input_text  = str(row.get('input', '')).strip()
+        output      = str(row.get('output', '')).strip()
+
+        parts = [f"### Instruction:\n{instruction}"]
+        if input_text:
+            parts.append(f"### Input:\n{input_text}")
+        parts.append(f"### Response:\n{output}")
+
+        return "\n\n".join(parts)
+
+    def _format_summarization(self, row: pd.Series) -> str:
+        article = str(row.get('input', '')).strip()
+        summary = str(row.get('output', '')).strip()
+
+        parts = [f"### Summarize the article:\n{article}"]
+        if summary:
+            parts.append(f"### Summary:\n{summary}")
+
+        return "\n\n".join(parts)
+
+    def _format_translation(self, row: pd.Series) -> str:
+        source = str(row.get('input', '')).strip()
+        target = str(row.get('output', '')).strip()
+
+        return f"### Translate this sentence:\n{source}\n\n### Into:\n{target}"
+
+    def _format_classification(self, row: pd.Series) -> str:
+        text  = str(row.get('input', '')).strip()
+        label = str(row.get('output', '')).strip()
+
+        return f"### Classify this sentence:\n{text}\n\n### Label:\n{label}"
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    #                          STATS METHOD
+    # ─────────────────────────────────────────────────────────────────────────────
     def get_format_stats(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Get statistics about the formatted data"""
+        """Return basic statistics about the formatted data."""
         if 'tokenizer_input' not in df.columns:
             return {}
-        
-        text_lengths = df['tokenizer_input'].str.len()
-        
+
+        lengths = df['tokenizer_input'].str.len()
         return {
             'total_examples': len(df),
-            'avg_text_length': text_lengths.mean(),
-            'min_text_length': text_lengths.min(),
-            'max_text_length': text_lengths.max(),
-            'median_text_length': text_lengths.median()
+            'avg_text_length': lengths.mean(),
+            'min_text_length': lengths.min(),
+            'max_text_length': lengths.max(),
+            'median_text_length': lengths.median()
         }
