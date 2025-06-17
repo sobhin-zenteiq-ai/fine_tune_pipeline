@@ -36,99 +36,112 @@ class TokenizerHandler:
             
         return tokenizer
     
-    def tokenize(self, splits: Dict[str, pd.DataFrame]) -> Dict[str, 'TokenizedDataset']:
+
+    def tokenize(self, splits: Dict[str, pd.DataFrame]) -> Dict[str, Dataset]:
         """
-        Tokenize the text data for each split
-        
+        Tokenize each DataFrame split and return a dict of Hugging Face Datasets.
+
         Args:
-            splits: Dictionary containing train/validation DataFrames
-            
+            splits: {"train": df_train, "validation": df_val, ...}
+
         Returns:
-            Dictionary containing tokenized datasets
+            {"train": Dataset, "validation": Dataset, ...}
+            (Each Dataset already contains `input_ids`, `attention_mask`, `labels`
+            and is formatted as PyTorch Tensors.)
         """
         print("Starting tokenization...")
-        
-        tokenized_splits = {}
-        
+        tokenized_splits: Dict[str, Dataset] = {}
+
         for split_name, df in splits.items():
             print(f"Tokenizing {split_name} set...")
-            tokenized_dataset = self._tokenize_dataframe(df)
-            tokenized_splits[split_name] = tokenized_dataset
-            print(f"Tokenized {len(tokenized_dataset)} examples for {split_name}")
-        
+            tokenized_ds = self._tokenize_dataframe(df)     # <- now returns HF Dataset
+            tokenized_splits[split_name] = tokenized_ds
+            print(f"Tokenized {len(tokenized_ds)} examples for {split_name}")
+
+        # Optional: wrap in a DatasetDict if that’s more convenient downstream
+        # return DatasetDict(tokenized_splits)  # uncomment if desired
         return tokenized_splits
-   
-    def _tokenize_dataframe(self, df: pd.DataFrame) -> 'TokenizedDataset':
+
+
+
+# --------------------------------------------------------------------------- #
+# 2.  Internal helper – tokenizes ONE DataFrame and returns an HF Dataset
+# --------------------------------------------------------------------------- #
+    def _tokenize_dataframe(self, df: pd.DataFrame) -> Dataset:
         """
-        Efficiently tokenize a DataFrame using Hugging Face Datasets for large-scale processing.
-        Applies label masking for decoder-only models.
+        Efficiently tokenize a DataFrame and return a Hugging Face Dataset.
+        • Supports label‑masking for decoder‑only tasks (qa / summarization / translation)
+        • For classification tasks, expects an integer column `label_id`
         """
-        # Map task to separator
+
+        # ----------------------------- task‑specific setup ---------------------- #
         separator_map = {
-            'qa': '### Response:\n',
-            'summarization': '### summary:\n',
-            'translation': '### into:\n'
+            "qa":            "### Response:\n",
+            "summarization": "### summary:\n",
+            "translation":   "### into:\n",
         }
+        task      = self.task.lower()
+        separator = separator_map.get(task)        # None for classification
 
-        task = self.task.lower()
-        separator = separator_map.get(task, None)
+        # --------------------------- build a raw HF Dataset --------------------- #
+        # Store only the text column plus label_id when present.
+        keep_cols = ["tokenizer_input"] + (["label_id"] if "label_id" in df.columns else [])
+        hf_ds = datasets.Dataset.from_pandas(df[keep_cols].reset_index(drop=True))
 
-        # Convert DataFrame to HF Dataset
-        hf_dataset = datasets.Dataset.from_pandas(df[['tokenizer_input']])
-
+        # ----------------------------- tokenize function ------------------------ #
         def tokenize_and_mask(batch):
-            encodings = self.tokenizer(
-                batch['tokenizer_input'],
+            enc = self.tokenizer(
+                batch["tokenizer_input"],
                 truncation=self.truncation,
-                padding='max_length',
+                padding="max_length",
                 max_length=self.max_length,
             )
-            
+
+            # -------- label masking for generative tasks ------------------------ #
             if task in separator_map:
-                labels = []
-                for text, input_ids in zip(batch['tokenizer_input'], encodings['input_ids']):
-                    # Try masking the prompt part
-                    try:
-                        prompt = text.split(separator)[0] + separator
-                    except IndexError:
-                        prompt = text  # fallback
-                    
-                    prompt_tokens = self.tokenizer(
+                masked = []
+                for text, ids in zip(batch["tokenizer_input"], enc["input_ids"]):
+                    prompt = (text.split(separator)[0] + separator) if separator in text else text
+                    prompt_ids = self.tokenizer(
                         prompt,
                         truncation=self.truncation,
                         max_length=self.max_length,
-                    )['input_ids']
-                    
-                    # Mask prompt part in labels
-                    label = input_ids.copy()
-                    prompt_len = len(prompt_tokens)
-                    label[:prompt_len] = [-100] * prompt_len
-                    labels.append(label)
-                
-                encodings['labels'] = labels
+                    )["input_ids"]
+
+                    lbl = ids.copy()
+                    lbl[:len(prompt_ids)] = [-100] * len(prompt_ids)  # mask prompt tokens
+                    masked.append(lbl)
+                enc["labels"] = masked
             else:
-                # No masking for classification or unknown tasks
-                encodings['labels'] = encodings['input_ids'].copy()
+                # Classification or unknown → no masking here
+                # We'll attach the integer label later.
+                enc["labels"] = enc["input_ids"].copy()
 
-            return encodings
+            return enc
 
-        # Use batched mapping for speed and parallelism
-        tokenized_dataset = hf_dataset.map(
+        # ---------------------------- batched mapping -------------------------- #
+        tokenized_ds = hf_ds.map(
             tokenize_and_mask,
             batched=True,
             batch_size=self.batch_size,
             remove_columns=["tokenizer_input"],
-            num_proc=1,  # Increase if CPU-bound and using multiple cores
-            load_from_cache_file=True
+            num_proc=1,                 # bump if you can parallelise
+            load_from_cache_file=True,
         )
 
-        # Convert fields to torch.Tensor
-        input_ids = torch.tensor(tokenized_dataset["input_ids"], dtype=torch.long)
-        attention_mask = torch.tensor(tokenized_dataset["attention_mask"], dtype=torch.long)
-        if (self.task == 'classification'): labels = torch.tensor(df['label_id'].tolist(), dtype=torch.long)
-        else : labels = torch.tensor(tokenized_dataset["labels"], dtype=torch.long)
+        # ------------------------------ attach labels -------------------------- #
+        if task == "classification":
+            # Use the integer labels already in the DataFrame.
+            tokenized_ds = tokenized_ds.add_column("labels", df["label_id"].tolist())
 
-        return TokenizedDataset(input_ids, attention_mask, labels)
+        # --------------------------- make tensors on demand -------------------- #
+        tokenized_ds.set_format(
+            type="torch",
+            columns=["input_ids", "attention_mask", "labels"],
+            output_all_columns=False,
+        )
+
+        return tokenized_ds
 
     
     def get_tokenization_stats(self, tokenized_splits: Dict[str, 'TokenizedDataset']) -> Dict[str, Any]:
@@ -136,7 +149,7 @@ class TokenizerHandler:
         stats = {}
         
         for split_name, dataset in tokenized_splits.items():
-            input_ids = dataset.input_ids
+            input_ids = dataset['input_ids']
             
             # Calculate lengths (non-padding tokens)
             if self.tokenizer.pad_token_id is not None:
