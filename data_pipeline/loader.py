@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Dict, Any
-from datasets import load_dataset
+from datasets import load_dataset,get_dataset_config_names
 
 class DataLoader:
     """Handles loading datasets from various sources"""
@@ -12,9 +12,12 @@ class DataLoader:
         :param task: The task to be handled ('qa' or 'summarization').
         """
         self.config = config
-        self.task = task  # 'qa' or 'summarization'
+        self.task = self.config.get('model', {}).get('task','qa')  # 'qa' or 'summarization'
         self.available_datasets = self.config.get('tasks', {}).get(self.task, {}).get('available_datasets', [])
-        
+        self.instruction_column = self.config.get('dataset', {}).get('instruction', 'None')
+        self.input_column = self.config.get('dataset', {}).get('input', 'None')
+        self.output_column = self.config.get('dataset', {}).get('output', 'None')
+
     def load(self, dataset_name: str = None) -> pd.DataFrame:
         """
         Load dataset from Hugging Face or from custom upload based on task.
@@ -30,114 +33,75 @@ class DataLoader:
         if dataset_name is None:
             raise ValueError("Dataset name must be provided.")
         
-        if dataset_name in self.available_datasets:
-            # If the dataset is available in the config for this task
-            if dataset_name == 'squad':
-                return self._load_squad_dataset(dataset_name)
-            elif dataset_name in ['natural_questions']:
-                return self._load_from_huggingface(dataset_name)
-            elif dataset_name in ['xsum', 'cnn_dailymail']:
-                return self._load_summarization_dataset(dataset_name)
-            else:
-                # Load dataset from Hugging Face for other tasks
-                return self._load_from_huggingface(dataset_name)
-        else:
-            raise ValueError(f"Dataset {dataset_name} is not available for the {self.task} task.")
+        return self._load_from_huggingface(dataset_name)
     
-    def _load_squad_dataset(self, dataset_name: str) -> pd.DataFrame:
-        """Load the SQuAD dataset from Hugging Face and map columns"""
-        print(f"Loading dataset: {dataset_name} from Hugging Face")
-        try:
-            dataset = load_dataset(dataset_name)
-
-            # Convert to pandas DataFrame
-            if 'train' in dataset:
-                df = dataset['train'].to_pandas()
-            else:
-                first_split = list(dataset.keys())[0]
-                df = dataset[first_split].to_pandas()
-
-            print(f"Loaded {len(df)} examples")
-
-            # Map SQuAD columns to QA task columns
-            df['instruction'] = df['question']  # Mapping 'question' to 'instruction'
-            df['input'] = df['context']  # Mapping 'context' to 'input'
-            
-            # Extract answers and join them if multiple answers exist
-            df['output'] = df['answers'].apply(lambda x: ' '.join(x['text']) if isinstance(x, dict) and 'text' in x else str(x))
-
-            # Keep only the required columns and drop others to avoid serialization issues
-            df = df[['instruction', 'input', 'output']].copy()
-
-            self._validate_dataframe(df)
-
-            return df
-        except Exception as e:
-            print(f"Error loading dataset: {str(e)}")
-            raise
-
-    def _load_summarization_dataset(self, dataset_name: str) -> pd.DataFrame:
-        """Load summarization datasets and map columns appropriately"""
-        print(f"Loading dataset: {dataset_name} from Hugging Face")
-        try:
-            dataset = load_dataset(dataset_name)
-
-            # Convert to pandas DataFrame
-            if 'train' in dataset:
-                df = dataset['train'].to_pandas()
-            else:
-                first_split = list(dataset.keys())[0]
-                df = dataset[first_split].to_pandas()
-
-            print(f"Loaded {len(df)} examples")
-
-            # Map columns based on dataset
-            if dataset_name == 'xsum':
-                df['instruction'] = "Summarize the following document:"
-                df['input'] = df['document']
-                df['output'] = df['summary']
-            elif dataset_name == 'cnn_dailymail':
-                df['instruction'] = "Summarize the following article:"
-                df['input'] = df['article']
-                df['output'] = df['highlights']
-
-            # Keep only the required columns
-            df = df[['instruction', 'input', 'output']].copy()
-
-            self._validate_dataframe(df)
-            return df
-
-        except Exception as e:
-            print(f"Error loading dataset: {str(e)}")
-            raise
-
+    
     def _load_from_huggingface(self, dataset_name: str) -> pd.DataFrame:
         """Load dataset from Hugging Face"""
         print(f"Loading dataset: {dataset_name} from Hugging Face")
         try:
             dataset = load_dataset(dataset_name)
+            print(f"Dataset {dataset_name} loaded successfully")
+            print(dataset)
+        except ValueError as e:
+            # If config name is missing, list all configs and pick one
+            if "Config name is missing" in str(e):
+                configs = get_dataset_config_names(dataset_name)
+                # Strategy: pick the latest or default one (e.g., highest version)
+                selected_config = sorted(configs)[-1]  # or logic to choose default
+                dataset =  load_dataset(dataset_name, selected_config)
+            else:
+                raise e
 
             # Convert to pandas DataFrame
-            if 'train' in dataset:
-                df = dataset['train'].to_pandas()
-            else:
-                first_split = list(dataset.keys())[0]
-                df = dataset[first_split].to_pandas()
+        if 'train' in dataset:
+            df = dataset['train'].to_pandas()
+            print("hey")
+            #print(df[0]['instruction'])
+            print(f"Loaded {len(df)} training examples")
+        else:
+            first_split = list(dataset.keys())[0]
+            df = dataset[first_split].to_pandas()
 
-            print(f"Loaded {len(df)} examples")
-            
-            # Basic validation to ensure required columns exist
-            self._validate_dataframe(df)
+        print(f"Loaded {len(df)} examples")
+        
+        # Basic validation to ensure required columns exist
+        self.validate_dataframe(df)
 
-            return df
+        return self.format_dataframe(df)
 
-        except Exception as e:
-            print(f"Error loading dataset: {str(e)}")
-            raise
+    def format_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Format DataFrame to match expected structure for the task"""
+        
+        config = self.config.get('dataset', {})
+        instruction_column = config.get('instruction', '')
+        input_column = config.get('input', 'input')
+        output_column = config.get('output', 'output')
+        df['input'] = df[input_column]
+        df['output'] = df[output_column]
+        if instruction_column != '':
+            df['instruction'] = df[instruction_column]
+            df = df[['instruction','input', 'output']].copy()
+
+        else:
+            df = df[['input', 'output']].copy()
+
+        if self.task == 'classification':
+            label2id = {label: idx for idx, label in enumerate(df['output'].unique())}
+            df['label_id'] = df['output'].map(label2id)
+        return df
     
-    def _validate_dataframe(self, df: pd.DataFrame) -> None:
+    def validate_dataframe(self, df: pd.DataFrame) -> None:
         """Validate if DataFrame has required columns"""
-        required_columns = ['instruction', 'input', 'output']  # Basic check for QA
+        config = self.config.get('dataset', {})
+        instruction_column = config.get('instruction', '')
+        input_column = config.get('input', 'input')
+        output_column = config.get('output', 'output')
+
+        if instruction_column == '' and self.task != 'qa': 
+            required_columns = [input_column, output_column]  # Basic check for summarization
+        else:
+            required_columns = [instruction_column,input_column, output_column]  # Basic check for QA
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
