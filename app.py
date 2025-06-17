@@ -18,7 +18,6 @@ import logging
 
 # Import your pipeline components
 from data_pipeline import DataPipeline
-from data_pipeline.validator import DatasetValidator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

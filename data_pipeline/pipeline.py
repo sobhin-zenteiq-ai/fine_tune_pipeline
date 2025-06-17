@@ -7,7 +7,6 @@ from .preprocessor import TextPreprocessor
 from .formatter import DataFormatter
 from .splitter import DataSplitter
 from .tokenizer_handler import TokenizerHandler
-from .validator import DatasetValidator
 from .saver import DataSaver
 
 class DataPipeline:
@@ -37,7 +36,6 @@ class DataPipeline:
 
         # Initialize all components with the task information
         self.loader = DataLoader(self.config, task=self.task)
-        self.validator = DatasetValidator(self.config)
         self.cleaner = DataCleaner(self.config)
         self.preprocessor = TextPreprocessor(self.config)
         self.formatter = DataFormatter(self.config)
@@ -152,10 +150,6 @@ class DataPipeline:
         """
         steps = {
             'load': lambda: self.loader.load(dataset_name=self.dataset_name),
-            'validate': lambda: self.validator.validate_dataset(
-                dataset_features=set(input_data.columns) if input_data is not None else set(),
-                task_type=self.task
-            ),
             'clean': lambda data: self.cleaner.clean(data),
             'preprocess': lambda data: self.preprocessor.process(data),
             'format': lambda data: self.formatter.format(data),
