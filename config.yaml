@@ -1,53 +1,60 @@
-tasks:
-  qa:
-    available_datasets: ["squad", "natural_questions", "custom_qa_dataset"]
-  summarization:
-    available_datasets: ["xsum", "cnn_dailymail", "custom_summarization_dataset"]
-
-model:
-  name: "openai-community/gpt2"
-  task: "qa"  # Task can be changed dynamically by the user
-
 LoRA:
-  enable: true
-  rank: 8
   alpha: 16
   dropout: 0.1
-  target_modules: ["q_proj", "v_proj"]
-  training_args: 
-        output_dir: "./outputs"
-        per_device_train_batch_size: 1
-        num_train_epochs: 3
-        logging_steps: 10
-        save_steps: 50
-        eval_strategy: "epoch"
-        fp16: False
-        learning_rate: 0.00005
-        report_to: "none"
-
+  enable: true
+  rank: 8
+  target_modules:
+  - q_proj
+  - v_proj
+  training_args:
+    eval_strategy: epoch
+    fp16: false
+    learning_rate: 5.0e-05
+    logging_steps: 10
+    num_train_epochs: 3
+    output_dir: ./outputs
+    per_device_train_batch_size: 1
+    report_to: none
+    save_steps: 50
 cleaning:
+  max_length: 100000
   min_length: 10
-  max_length: 1000
   remove_duplicates: true
-
+dataset:
+  input: Complex_CoT
+  instruction: Question
+  name: FreedomIntelligence/medical-o1-reasoning-SFT
+  output: Response
+model:
+  name: openai-community/gpt2
+  task: qa
+output:
+  output_dir: output
+  save_cleaned: true
+  save_stats: true
+  save_tokenized: true
 preprocessing:
-  lowercase: true
-  remove_urls: true
-  remove_extra_whitespace: true
   expand_contractions: true
-
+  lowercase: true
+  remove_extra_whitespace: true
+  remove_urls: true
 splitting:
+  random_seed: 42
   train_ratio: 0.9
   validation_ratio: 0.1
-  random_seed: 42
-
+tasks:
+  qa:
+    available_datasets:
+    - squad
+    - natural_questions
+    - custom_qa_dataset
+  summarization:
+    available_datasets:
+    - xsum
+    - cnn_dailymail
+    - custom_summarization_dataset
 tokenization:
+  batch_size: 50000
   max_length: 512
   padding: true
   truncation: true
-
-output:
-  save_cleaned: true
-  save_tokenized: true
-  save_stats: true
-  output_dir: "output"
